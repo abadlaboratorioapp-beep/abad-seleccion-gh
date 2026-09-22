@@ -351,7 +351,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 .sp-sync-btn:hover{background:rgba(255,255,255,.3)}
 .sp-sync-btn.syncing{opacity:.6;cursor:default}
 @media print{
-  .nav,.btn-row,.btn,.nav-new,.modal-ov,.sp-loading{display:none!important}
+  .nav,.btn-row,.btn,.nav-new,.modal-ov,.sp-loading,#build-stamp{display:none!important}
   .stage{display:block!important;break-inside:avoid}
   #print-area{display:none}
   body.printing > *:not(#print-area){display:none!important}
@@ -366,6 +366,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 <body>
 
 <div id="print-area"></div>
+<div id="build-stamp" style="position:fixed;bottom:6px;right:10px;font-size:10px;color:#bbb;z-index:50;background:rgba(255,255,255,.85);padding:2px 8px;border-radius:4px;pointer-events:none;font-family:monospace">Build: 2026-09-22 04:02 UTC — v11 (eliminar+PDF fix)</div>
 
 <!-- ══ LOADING OVERLAY ══════════════════════════════════════ -->
 <div id="sp-loading" class="sp-loading">
