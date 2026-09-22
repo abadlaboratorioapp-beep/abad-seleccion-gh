@@ -64,7 +64,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f0f0;color:#1a1a1
 .b-proc{background:#e3f2fd;color:#0d47a1}
 .btn-sm{padding:5px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid #ddd;background:#fff;transition:all .15s}
 .btn-sm:hover{background:#f5f5f5}
-.btn-sm-r{border-color:#ffcdd2;color:#c62828}
+.btn-sm-r{border-color:#ffcdd2;color:#c62828;white-space:nowrap}
 .btn-sm-r:hover{background:#ffebee}
 .empty-st{text-align:center;padding:48px 20px;color:#999}
 
@@ -2762,7 +2762,7 @@ function renderPanel(){
       <td style="white-space:nowrap">
         ${isPartial?`<button class="btn-sm" style="background:#e3f2fd;color:#1565c0;border-color:#90caf9;font-weight:700" onclick="loadPartial('${r.id}')">▶ Continuar</button> `:''}
         <button class="btn-sm" onclick="verDet('${r.id}')">👁 Ver</button>
-        <button class="btn-sm btn-sm-r" onclick="eliminar('${r.id}')">✕</button>
+        <button class="btn-sm btn-sm-r" onclick="eliminar('${r.id}')">🗑️ Eliminar</button>
       </td>
     </tr>`;
   });
@@ -2998,12 +2998,20 @@ window.addEventListener('afterprint', function(){
 });
 
 async function eliminar(id){
+  if(!id){showToast('⚠ No se pudo identificar el registro a eliminar.');return;}
   if(!confirm('¿Eliminar este proceso? Esta acción no se puede deshacer.'))return;
-  const filtered = getDB().filter(r=>r.id!==id);
-  localStorage.setItem(DB_KEY, JSON.stringify(filtered));
-  renderPanel();
-  await spDeleteItem('seleccion', id);
-  showToast('✓ Proceso eliminado');
+  try{
+    const filtered = getDB().filter(r=>r.id!==id);
+    localStorage.setItem(DB_KEY, JSON.stringify(filtered));
+    renderPanel();
+    if(spReady){
+      await spDeleteItem('seleccion', id);
+    }
+    showToast('✓ Proceso eliminado correctamente');
+  }catch(e){
+    console.error('Error eliminando proceso:', e);
+    showToast('⚠ Se eliminó localmente pero hubo un error en SharePoint: '+(e.message||'desconocido').substring(0,100));
+  }
 }
 
 // ══════════════════════════ INIT ══════════
