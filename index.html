@@ -339,11 +339,40 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 .apro-pend{color:#7b5800;background:#fffde7}
 .apro-ok{color:#1b5e20;background:#e8f5e9}
 .apro-no{color:#7f0000;background:#ffebee}
-@media print{.nav,.btn-row,.btn,.nav-new{display:none!important}.stage{display:block!important;break-inside:avoid}}
+
+/* ── LOADING OVERLAY ── */
+.sp-loading{position:fixed;inset:0;background:rgba(255,255,255,.92);z-index:9000;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity .3s}
+.sp-loading.hidden{opacity:0;pointer-events:none}
+.sp-spinner{width:48px;height:48px;border:4px solid #f0f0f0;border-top:4px solid #B11E29;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:16px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.sp-loading-text{font-size:14px;color:#555;font-weight:600;margin-bottom:6px}
+.sp-loading-sub{font-size:12px;color:#aaa}
+.sp-sync-btn{background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.4);color:#fff;padding:5px 12px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;margin-left:8px}
+.sp-sync-btn:hover{background:rgba(255,255,255,.3)}
+.sp-sync-btn.syncing{opacity:.6;cursor:default}
+@media print{
+  .nav,.btn-row,.btn,.nav-new,.modal-ov,.sp-loading{display:none!important}
+  .stage{display:block!important;break-inside:avoid}
+  #print-area{display:none}
+  body.printing > *:not(#print-area){display:none!important}
+  body.printing #print-area{display:block!important;position:static;inset:auto;background:#fff;padding:0;margin:0}
+  body.printing{background:#fff}
+  .pdf-block{break-inside:avoid;margin-bottom:10px}
+  .pdf-page{padding:20px}
+}
+#print-area{display:none}
 </style>
 </head>
 <body>
 
+<div id="print-area"></div>
+
+<!-- ══ LOADING OVERLAY ══════════════════════════════════════ -->
+<div id="sp-loading" class="sp-loading">
+  <div class="sp-spinner"></div>
+  <div class="sp-loading-text" id="sp-loading-text">Conectando con SharePoint...</div>
+  <div class="sp-loading-sub" id="sp-loading-sub">Cargando datos compartidos de Abad Laboratorio</div>
+</div>
 <nav class="nav">
   <div class="nav-inner">
     <div class="nav-logo">
@@ -357,6 +386,9 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
     <button class="nav-btn" onclick="showView('proceso')" id="nav-proceso">Proceso activo</button>
     <button class="nav-btn" onclick="showView('catalogos')" id="nav-catalogos">Catálogos</button>
     <div class="nav-sp"></div>
+    <div id="sp-auth-bar" style="display:flex;align-items:center;padding:0 12px"></div>
+    <button id="sp-sync-btn" class="sp-sync-btn" onclick="syncFromSP()" title="Sincronizar datos con SharePoint" style="display:none">🔄 Sincronizar</button>
+    <button id="sp-test-btn" class="sp-sync-btn" onclick="testSPConnection()" title="Diagnosticar conexión con SharePoint" style="display:none">🔍 Probar</button>
     <button class="nav-new" onclick="nuevoProc()">+ Nuevo proceso</button>
   </div>
 </nav>
@@ -655,6 +687,10 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
       <div class="sc-i"><strong style="color:#2e7d32">75 – 100%</strong>Desarrollada / domina la competencia</div>
     </div>
     <p style="margin-top:8px">Los nombres de las competencias se cargan automáticamente según el cargo seleccionado (del Manual de Perfil V.10). Puede editarlos si la firma evaluó competencias con nombres diferentes. El porcentaje viene del informe de la firma (Comfama, Magneto u otra).<br><br><strong>Nota sobre escala unificada:</strong> Todas las etapas con ítems numéricos usan escala <strong>0 a 20 por ítem</strong>. GH: 5 ítems = 100 pts. Jefe, Evaluación técnica y Visita domiciliaria: 4 ítems = 80 pts. Los puntajes se normalizan al 100% automáticamente para el cálculo final.</p>
+    <div style="margin-top:12px;padding:10px 14px;background:#fff;border:1px solid #ffcc80;border-radius:8px">
+      <strong style="color:#B11E29;display:block;margin-bottom:4px">Criterio de aprobación</strong>
+      <p style="margin:0;font-size:13px;line-height:1.6">Se establece como resultado mínimo requerido para superar esta etapa un <strong>65% del resultado general</strong>. La interpretación del nivel de competencia se realizará de acuerdo con los siguientes rangos: <strong style="color:#e53935">0–49%: no desarrollada</strong>; <strong style="color:#f57f17">50–74%: en desarrollo</strong>; <strong style="color:#2e7d32">75–100%: desarrollada</strong>.</p>
+    </div>
   </div>
   <div class="g2">
     <div class="field"><label>Firma aplicadora *</label>
@@ -842,12 +878,522 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 <!-- MODAL -->
 <div class="modal-ov" id="modal-det">
   <div class="modal">
-    <div class="modal-hdr"><h3 id="modal-title">Detalle del proceso</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="modal-hdr"><h3 id="modal-title">Detalle del proceso</h3><div style="display:flex;align-items:center;gap:8px"><button class="btn" style="background:#fff;border:1px solid #B11E29;color:#B11E29;font-size:12px;padding:7px 14px" onclick="descargarPDF(currentDetId)">📄 Descargar PDF</button><button class="modal-close" onclick="closeModal()">✕</button></div></div>
     <div class="modal-body" id="modal-body"></div>
   </div>
 </div>
 
 <script>
+
+// ══════════════════════════════════════════════════════════════
+// SHAREPOINT CONFIGURATION — Edit these values for your tenant
+// ══════════════════════════════════════════════════════════════
+const SP_CONFIG = {
+  siteUrl: 'https://abadlaboratoriosas.sharepoint.com/sites/SGIABAD',
+  clientId: 'c45ef179-5451-48d3-80df-81f300db219c',
+  tenantId: '8e385369-5e8f-40bc-9ca5-59f37beb5bca',
+  lists: {
+    seleccion: 'ABADSeleccion',
+    requisiciones: 'ABADRequisiciones',
+    catalogos: 'ABADCatalogos'
+  }
+};
+
+// ══════════════════════════════════════════════════════════════
+// MSAL (Microsoft Authentication Library) — loaded from CDN
+// ══════════════════════════════════════════════════════════════
+let msalInstance = null;
+let spAccessToken = null;
+let currentUser = null;
+let spReady = false;
+
+function showLoading(text, sub) {
+  const ov = document.getElementById('sp-loading');
+  const t = document.getElementById('sp-loading-text');
+  const s = document.getElementById('sp-loading-sub');
+  if(ov) ov.classList.remove('hidden');
+  if(t) t.textContent = text || 'Cargando...';
+  if(s) s.textContent = sub || '';
+}
+
+function hideLoading() {
+  const ov = document.getElementById('sp-loading');
+  if(ov) {
+    ov.classList.add('hidden');
+    setTimeout(() => { ov.style.display = 'none'; }, 300);
+  }
+}
+
+async function syncFromSP() {
+  if(!spReady) { showToast('⚠ Conéctate a SharePoint primero.'); return; }
+  const btn = document.getElementById('sp-sync-btn');
+  if(btn) { btn.textContent = '⏳ Sincronizando...'; btn.classList.add('syncing'); }
+  showLoading('Sincronizando con SharePoint...', 'Obteniendo los datos más recientes');
+  try {
+    await loadAllDataFromSP();
+    refreshAllViews();
+    showToast('✓ Datos sincronizados con SharePoint — ' + new Date().toLocaleTimeString('es-CO'));
+  } catch(e) {
+    showToast('⚠ Error al sincronizar: ' + e.message);
+  } finally {
+    hideLoading();
+    if(btn) { btn.textContent = '🔄 Sincronizar'; btn.classList.remove('syncing'); }
+  }
+}
+
+async function testSPConnection() {
+  if(!spReady) { showToast('⚠ Primero debes conectarte con "Conectar".'); return; }
+  showLoading('Diagnosticando conexión...', 'Verificando sitio y listas de SharePoint');
+  let report = [];
+  try {
+    const siteId = await getSiteId();
+    report.push('✓ Sitio encontrado: '+siteId.substring(0,40)+'...');
+  } catch(e) {
+    report.push('✗ ERROR obteniendo el sitio: '+e.message);
+    hideLoading();
+    alert('Diagnóstico de conexión SharePoint:\n\n'+report.join('\n')+'\n\nRevisa que SP_CONFIG.siteUrl sea exactamente correcto.');
+    return;
+  }
+  for(const [key, listName] of Object.entries(SP_CONFIG.lists)) {
+    try {
+      const listId = await getListId(listName);
+      if(listId) report.push(`✓ Lista "${listName}" encontrada`);
+      else report.push(`✗ Lista "${listName}" NO encontrada — revisa el nombre exacto en SharePoint`);
+    } catch(e) {
+      report.push(`✗ ERROR verificando lista "${listName}": ${e.message}`);
+    }
+  }
+  // Try a test write to Seleccion list
+  try {
+    const siteId = await getSiteId();
+    const listId = await getListId(SP_CONFIG.lists.seleccion);
+    if(listId){
+      await spPost(`/sites/${siteId}/lists/${listId}/items`,
+        { fields: { RecordId: 'TEST-'+Date.now(), Nombre: 'Prueba de conexión', Cargo: 'Test', Resultado: 'TEST', DataJson: '{}' }});
+      report.push('✓ Escritura de prueba exitosa en '+SP_CONFIG.lists.seleccion);
+    }
+  } catch(e) {
+    report.push('✗ ERROR al escribir de prueba: '+e.message);
+  }
+  hideLoading();
+  alert('Diagnóstico de conexión SharePoint:\n\n'+report.join('\n'));
+}
+
+async function loadAllDataFromSP() {
+  // Fetch all 3 data sources from SharePoint in parallel
+  const [sel, req, cat] = await Promise.all([
+    spGetSeleccion(),
+    spGetRequisiciones(),
+    spGetCatalogos()
+  ]);
+  // Write to localStorage cache so getDB/getReqDB/getCat work immediately
+  localStorage.setItem(DB_KEY, JSON.stringify(sel));
+  localStorage.setItem(REQ_KEY, JSON.stringify(req));
+  localStorage.setItem(CAT_KEY, JSON.stringify(cat));
+}
+
+function refreshAllViews() {
+  // Re-render all active views with fresh data
+  renderDash();
+  renderPanel();
+  renderRequisiciones();
+  applyCatalogToForms();
+}
+
+let msalInitPromise = null;
+
+// Ensures MSAL is loaded and msalInstance exists. Safe to call multiple times.
+async function ensureMsal() {
+  if (msalInstance) return msalInstance;
+  if (msalInitPromise) return msalInitPromise;
+
+  msalInitPromise = (async () => {
+    await loadScript('https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js');
+    if (typeof msal === 'undefined') {
+      throw new Error('No se pudo cargar la librería de autenticación de Microsoft (sin conexión a internet o bloqueada por el navegador).');
+    }
+    const instance = new msal.PublicClientApplication({
+      auth: {
+        clientId: SP_CONFIG.clientId,
+        authority: `https://login.microsoftonline.com/${SP_CONFIG.tenantId}`,
+        redirectUri: window.location.href.split('?')[0],
+      },
+      cache: { cacheLocation: 'sessionStorage', storeAuthStateInCookie: false }
+    });
+    await instance.initialize();
+    msalInstance = instance;
+    return instance;
+  })();
+
+  try {
+    return await msalInitPromise;
+  } catch(e) {
+    msalInitPromise = null; // allow retry on next call
+    throw e;
+  }
+}
+
+async function initSharePoint() {
+  try {
+    showLoading('Conectando con SharePoint...', 'Verificando credenciales de Abad Laboratorio');
+
+    await ensureMsal();
+
+    // Try silent login first (works if user already logged in this session)
+    const accounts = msalInstance.getAllAccounts();
+    if (accounts.length > 0) {
+      showLoading('Autenticando...', 'Sesión encontrada para ' + accounts[0].name);
+      const resp = await msalInstance.acquireTokenSilent({
+        scopes: ['https://graph.microsoft.com/Sites.ReadWrite.All',
+                 'https://graph.microsoft.com/User.Read'],
+        account: accounts[0]
+      });
+      spAccessToken = resp.accessToken;
+      currentUser = accounts[0];
+      spReady = true;
+      updateAuthUI(true);
+
+      // ── KEY: Load all data from SP before rendering ──────
+      showLoading('Cargando datos...', 'Leyendo procesos, requisiciones y catálogos desde SharePoint');
+      await loadAllDataFromSP();
+      showLoading('Casi listo...', 'Aplicando configuración y catálogos');
+
+    } else {
+      // No saved session — show app with local data and prompt login
+      updateAuthUI(false);
+    }
+  } catch(e) {
+    console.warn('SharePoint init error:', e);
+    updateAuthUI(false);
+  } finally {
+    hideLoading();
+  }
+}
+
+async function loginSP() {
+  try {
+    showLoading('Iniciando sesión...', 'Conectando con tu cuenta de Abad Laboratorio');
+
+    // Defensive: (re)initialize MSAL if it isn't ready yet, instead of failing
+    await ensureMsal();
+
+    const resp = await msalInstance.loginPopup({
+      scopes: ['https://graph.microsoft.com/Sites.ReadWrite.All',
+               'https://graph.microsoft.com/User.Read']
+    });
+    spAccessToken = resp.accessToken;
+    currentUser = resp.account;
+    spReady = true;
+    updateAuthUI(true);
+
+    // Load ALL data from SharePoint immediately after login
+    showLoading('Cargando datos compartidos...', 'Sincronizando procesos, requisiciones y catálogos');
+    await loadAllDataFromSP();
+    refreshAllViews();
+    showToast('✓ Conectado como ' + currentUser.name + ' — datos sincronizados');
+  } catch(e) {
+    console.error('Login error:', e);
+    showToast('⚠ Error al conectar: ' + (e.message||'desconocido'));
+  } finally {
+    hideLoading();
+  }
+}
+
+function updateAuthUI(loggedIn) {
+  const authBar = document.getElementById('sp-auth-bar');
+  const syncBtn = document.getElementById('sp-sync-btn');
+  if(!authBar) return;
+  if(loggedIn) {
+    const now = new Date().toLocaleTimeString('es-CO', {hour:'2-digit',minute:'2-digit'});
+    authBar.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="width:8px;height:8px;border-radius:50%;background:#43a047;flex-shrink:0"></div>
+        <span style="font-size:12px;color:rgba(255,255,255,.9);font-weight:600">${currentUser?.name?.split(' ')[0]||'Usuario'}</span>
+        <span style="font-size:10px;color:rgba(255,255,255,.6)">· SP ${now}</span>
+      </div>`;
+    if(syncBtn) syncBtn.style.display = 'block';
+  } else {
+    authBar.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="width:8px;height:8px;border-radius:50%;background:#e53935;flex-shrink:0"></div>
+        <span style="font-size:11px;color:rgba(255,255,255,.7)">Sin SharePoint</span>
+        <button onclick="loginSP()" style="padding:4px 10px;border:1px solid rgba(255,255,255,.4);border-radius:5px;background:rgba(255,255,255,.15);color:#fff;font-size:11px;font-weight:600;cursor:pointer">Conectar</button>
+      </div>`;
+    if(syncBtn) syncBtn.style.display = 'none';
+  }
+}
+
+function loadScriptOnce(src, timeoutMs) {
+  return new Promise((res, rej) => {
+    const existing = document.querySelector(`script[src="${src}"]`);
+    if(existing){
+      if(typeof msal !== 'undefined'){ res(); return; }
+      // Script tag exists but global not ready yet — wait briefly
+    }
+    const s = document.createElement('script');
+    s.src = src;
+    let done = false;
+    const timer = setTimeout(()=>{
+      if(!done){ done = true; rej(new Error('timeout')); }
+    }, timeoutMs || 8000);
+    s.onload = () => { if(!done){ done = true; clearTimeout(timer); res(); } };
+    s.onerror = () => { if(!done){ done = true; clearTimeout(timer); rej(new Error('network error')); } };
+    document.head.appendChild(s);
+  });
+}
+
+// Try multiple CDN mirrors in sequence — some corporate networks/adblockers
+// block one CDN but allow another.
+const MSAL_CDN_MIRRORS = [
+  'https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js',
+  'https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js',
+  'https://unpkg.com/@azure/msal-browser@2.38.3/lib/msal-browser.min.js'
+];
+
+async function loadScript(preferredSrc) {
+  const sources = [preferredSrc, ...MSAL_CDN_MIRRORS.filter(u=>u!==preferredSrc)];
+  let lastErr = null;
+  for(const src of sources){
+    try {
+      await loadScriptOnce(src, 8000);
+      if(typeof msal !== 'undefined') return;
+      lastErr = new Error('script cargó pero "msal" no está definido');
+    } catch(e){
+      lastErr = e;
+      console.warn('No se pudo cargar desde', src, e.message);
+    }
+  }
+  throw new Error('No se pudo cargar la librería de Microsoft desde ninguna fuente. Verifica tu conexión a internet o pide a IT que permita el dominio alcdn.msauth.net / jsdelivr.net / unpkg.com. Detalle: '+(lastErr?lastErr.message:'desconocido'));
+}
+
+// ── Graph API helpers ─────────────────────────────────────────
+async function spGet(path) {
+  const r = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
+    headers: {
+      Authorization: 'Bearer ' + spAccessToken,
+      Prefer: 'HonorNonIndexedQueriesWarningMayFailRandomly'
+    }
+  });
+  if(!r.ok) {
+    const errText = await r.text();
+    console.error('SP GET failed:', path, r.status, errText);
+    throw new Error(`[${r.status}] ${errText}`);
+  }
+  return r.json();
+}
+
+async function spPost(path, body) {
+  const r = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + spAccessToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if(!r.ok) {
+    const errText = await r.text();
+    console.error('SP POST failed:', path, r.status, errText);
+    throw new Error(`[${r.status}] ${errText}`);
+  }
+  return r.json();
+}
+
+async function spPatch(path, body) {
+  const r = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
+    method: 'PATCH',
+    headers: { Authorization: 'Bearer ' + spAccessToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if(!r.ok) {
+    const errText = await r.text();
+    console.error('SP PATCH failed:', path, r.status, errText);
+    throw new Error(`[${r.status}] ${errText}`);
+  }
+  return r.ok;
+}
+
+async function spDelete(path) {
+  const r = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
+    method: 'DELETE',
+    headers: { Authorization: 'Bearer ' + spAccessToken }
+  });
+  if(!r.ok && r.status !== 404) {
+    const errText = await r.text();
+    console.error('SP DELETE failed:', path, r.status, errText);
+    throw new Error(`[${r.status}] ${errText}`);
+  }
+  return true;
+}
+
+async function spDeleteItem(listKey, recordId) {
+  if(!spReady) return;
+  try {
+    const siteId = await getSiteId();
+    const listId = await getListId(SP_CONFIG.lists[listKey]);
+    if(!listId) throw new Error(`No se encontró la lista "${SP_CONFIG.lists[listKey]}"`);
+    const existing = await spGet(`/sites/${siteId}/lists/${listId}/items?$filter=fields/RecordId eq '${recordId}'&$expand=fields`);
+    if(existing.value.length > 0) {
+      await spDelete(`/sites/${siteId}/lists/${listId}/items/${existing.value[0].id}`);
+    }
+  } catch(e) {
+    console.error('SP delete error:', e);
+    showToast('⚠ Error eliminando en SharePoint: '+(e.message||'desconocido').substring(0,120));
+  }
+}
+
+// Cache SP site ID
+let spSiteId = null;
+async function getSiteId() {
+  if(spSiteId) return spSiteId;
+  const url = SP_CONFIG.siteUrl.replace('https://','');
+  const hostname = url.split('/')[0];
+  const sitePath = '/' + url.split('/').slice(1).join('/');
+  const data = await spGet(`/sites/${hostname}:${sitePath}`);
+  spSiteId = data.id;
+  return spSiteId;
+}
+
+async function getListId(listName) {
+  const siteId = await getSiteId();
+  const data = await spGet(`/sites/${siteId}/lists?$filter=displayName eq '${listName}'`);
+  if(!data.value || data.value.length===0){
+    console.error(`Lista "${listName}" no encontrada en el sitio de SharePoint.`);
+    return null;
+  }
+  return data.value[0].id;
+}
+
+// ── SP Data Operations ────────────────────────────────────────
+
+// SELECCIÓN
+async function spGetSeleccion() {
+  try {
+    const siteId = await getSiteId();
+    const listId = await getListId(SP_CONFIG.lists.seleccion);
+    const data = await spGet(`/sites/${siteId}/lists/${listId}/items?$expand=fields&$top=500`);
+    return data.value.map(item => JSON.parse(item.fields.DataJson||'{}'));
+  } catch(e) { console.warn('SP read error, using local:', e); return getDBLocal(); }
+}
+
+async function spSaveSeleccion(rec) {
+  // Save to SP + local cache
+  saveDBLocal_single(rec);
+  if(!spReady) return;
+  try {
+    const siteId = await getSiteId();
+    const listId = await getListId(SP_CONFIG.lists.seleccion);
+    if(!listId) throw new Error(`No se encontró la lista "${SP_CONFIG.lists.seleccion}" en SharePoint. Verifica el nombre exacto.`);
+    const existing = await spGet(`/sites/${siteId}/lists/${listId}/items?$filter=fields/RecordId eq '${rec.id}'&$expand=fields`);
+    if(existing.value.length > 0) {
+      const itemId = existing.value[0].id;
+      await spPatch(`/sites/${siteId}/lists/${listId}/items/${itemId}/fields`,
+        { RecordId: rec.id, Nombre: rec.nombre||'', Cargo: rec.cargo||'', Resultado: rec.resultado||'EN PROCESO', DataJson: JSON.stringify(rec) });
+    } else {
+      await spPost(`/sites/${siteId}/lists/${listId}/items`,
+        { fields: { RecordId: rec.id, Nombre: rec.nombre||'', Cargo: rec.cargo||'', Resultado: rec.resultado||'EN PROCESO', DataJson: JSON.stringify(rec) }});
+    }
+  } catch(e) {
+    console.error('SP save error (Seleccion):', e);
+    showToast('⚠ Error guardando en SharePoint: '+(e.message||'desconocido').substring(0,120));
+  }
+}
+
+// REQUISICIONES
+async function spGetRequisiciones() {
+  try {
+    const siteId = await getSiteId();
+    const listId = await getListId(SP_CONFIG.lists.requisiciones);
+    const data = await spGet(`/sites/${siteId}/lists/${listId}/items?$expand=fields&$top=500`);
+    return data.value.map(item => JSON.parse(item.fields.DataJson||'{}'));
+  } catch(e) { return getReqDBLocal(); }
+}
+
+async function spSaveRequisicion(rec) {
+  saveReqDBLocal_single(rec);
+  if(!spReady) return;
+  try {
+    const siteId = await getSiteId();
+    const listId = await getListId(SP_CONFIG.lists.requisiciones);
+    if(!listId) throw new Error(`No se encontró la lista "${SP_CONFIG.lists.requisiciones}" en SharePoint. Verifica el nombre exacto.`);
+    const existing = await spGet(`/sites/${siteId}/lists/${listId}/items?$filter=fields/RecordId eq '${rec.id}'&$expand=fields`);
+    const fields = { RecordId: rec.id, Consecutivo: rec.consecutivo||'', Cargo: rec.cargo?.nombre||'', Estado: rec.estado||'PENDIENTE', Solicitante: rec.solicitante?.nombre||'', DataJson: JSON.stringify(rec) };
+    if(existing.value.length > 0) {
+      await spPatch(`/sites/${siteId}/lists/${listId}/items/${existing.value[0].id}/fields`, fields);
+    } else {
+      await spPost(`/sites/${siteId}/lists/${listId}/items`, { fields });
+    }
+  } catch(e) {
+    console.error('SP req save error:', e);
+    showToast('⚠ Error guardando requisición en SharePoint: '+(e.message||'desconocido').substring(0,120));
+  }
+}
+
+// CATÁLOGOS
+async function spGetCatalogos() {
+  try {
+    const siteId = await getSiteId();
+    const listId = await getListId(SP_CONFIG.lists.catalogos);
+    const data = await spGet(`/sites/${siteId}/lists/${listId}/items?$filter=fields/Title eq 'main'&$expand=fields`);
+    if(data.value.length > 0) {
+      return JSON.parse(data.value[0].fields.DataJson||'null') || JSON.parse(JSON.stringify(CAT_DEFAULTS));
+    }
+    return JSON.parse(JSON.stringify(CAT_DEFAULTS));
+  } catch(e) { return getCatLocal(); }
+}
+
+async function spSaveCatalogos(cat) {
+  saveCatLocal(cat);
+  if(!spReady) return;
+  try {
+    const siteId = await getSiteId();
+    const listId = await getListId(SP_CONFIG.lists.catalogos);
+    if(!listId) throw new Error(`No se encontró la lista "${SP_CONFIG.lists.catalogos}" en SharePoint. Verifica el nombre exacto.`);
+    const existing = await spGet(`/sites/${siteId}/lists/${listId}/items?$filter=fields/Title eq 'main'&$expand=fields`);
+    const fields = { Title: 'main', DataJson: JSON.stringify(cat) };
+    if(existing.value.length > 0) {
+      await spPatch(`/sites/${siteId}/lists/${listId}/items/${existing.value[0].id}/fields`, fields);
+    } else {
+      await spPost(`/sites/${siteId}/lists/${listId}/items`, { fields });
+    }
+  } catch(e) {
+    console.error('SP cat save error:', e);
+    showToast('⚠ Error guardando catálogos en SharePoint: '+(e.message||'desconocido').substring(0,120));
+  }
+}
+
+// ── Local fallbacks (renamed) ─────────────────────────────────
+function getDBLocal(){try{return JSON.parse(localStorage.getItem(DB_KEY)||'[]')}catch(e){return[]}}
+function saveDBLocal_single(rec){
+  const db=getDBLocal();
+  const idx=db.findIndex(x=>x.id===rec.id);
+  if(idx>=0)db[idx]=rec;else db.push(rec);
+  localStorage.setItem(DB_KEY,JSON.stringify(db));
+}
+function getReqDBLocal(){try{return JSON.parse(localStorage.getItem(REQ_KEY)||'[]')}catch(e){return[]}}
+function saveReqDBLocal_single(rec){
+  const db=getReqDBLocal();
+  const idx=db.findIndex(x=>x.id===rec.id);
+  if(idx>=0)db[idx]=rec;else db.push(rec);
+  localStorage.setItem(REQ_KEY,JSON.stringify(db));
+}
+function getCatLocal(){try{const d=JSON.parse(localStorage.getItem(CAT_KEY));return d||JSON.parse(JSON.stringify(CAT_DEFAULTS));}catch(e){return JSON.parse(JSON.stringify(CAT_DEFAULTS));}}
+function saveCatLocal(d){localStorage.setItem(CAT_KEY,JSON.stringify(d));}
+
+// ── Override original DB functions to use SP when available ───
+// These replace getDB/saveDB/getReqDB/saveReqDB/getCat/saveCat
+// with async-aware versions that try SP first, fall back to local
+
+// Async wrappers used by renderDash, renderPanel, etc.
+async function loadAllData() {
+  if(spReady) {
+    const [sel, req, cat] = await Promise.all([
+      spGetSeleccion(), spGetRequisiciones(), spGetCatalogos()
+    ]);
+    // Sync to local cache
+    localStorage.setItem(DB_KEY, JSON.stringify(sel));
+    localStorage.setItem(REQ_KEY, JSON.stringify(req));
+    localStorage.setItem(CAT_KEY, JSON.stringify(cat));
+  }
+}
+
 // ══════════════════════════ DATA TABLES ══════════
 const DB_KEY='abad_sel_v3';
 
@@ -1015,16 +1561,28 @@ let ST={
 let currentId=null;
 
 function getDB(){try{return JSON.parse(localStorage.getItem(DB_KEY)||'[]')}catch(e){return[]}}
-function saveDB(d){localStorage.setItem(DB_KEY,JSON.stringify(d))}
+function saveDB(d){
+  localStorage.setItem(DB_KEY,JSON.stringify(d));
+  // Sync last modified record to SharePoint
+  if(spReady && d.length > 0) {
+    const last = d[d.length-1];
+    spSaveSeleccion(last).catch(e=>console.warn('SP sync:',e));
+  }
+}
 function v(id){const el=document.getElementById(id);return el?el.value:''}
 function vv(id,val){const el=document.getElementById(id);if(el)el.value=val}
 
 // ══════════════════════════ VIEWS ══════════
-function showView(name){
+async function showView(name){
   document.querySelectorAll('.view').forEach(el=>el.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(el=>el.classList.remove('active'));
   document.getElementById('view-'+name).classList.add('active');
   document.getElementById('nav-'+name).classList.add('active');
+  // Silently refresh from SharePoint when switching tabs (if connected)
+  if(spReady){
+    try{ await loadAllDataFromSP(); }
+    catch(e){ console.warn('Tab sync SP error:',e); }
+  }
   if(name==='dashboard')renderDash();
   if(name==='requisiciones')renderRequisiciones();
   if(name==='panel')renderPanel();
@@ -2213,8 +2771,10 @@ function renderPanel(){
 }
 
 
+let currentDetId=null;
 function verDet(id){
   const db=getDB(); const r=db.find(x=>x.id===id); if(!r)return;
+  currentDetId=id;
   const bc=r.resultado==='APTO'?'b-apto':r.resultado==='NO APTO'?'b-noap':r.resultado==='CONDICIONADO'?'b-cond':'b-proc';
   document.getElementById('modal-title').textContent=(r.nombre||'—')+' — '+(r.cargo||'—');
   const et=r.etapas||{};
@@ -2325,13 +2885,133 @@ function verDet(id){
 function closeModal(){document.getElementById('modal-det').classList.remove('open');}
 document.getElementById('modal-det').addEventListener('click',function(e){if(e.target===this)closeModal();});
 
-function eliminar(id){
+// ══════════════════════════════════════════════════════════════
+// DESCARGAR PDF — genera un documento imprimible con el detalle
+// completo del candidato y abre el diálogo de impresión/guardar
+// como PDF del navegador.
+// ══════════════════════════════════════════════════════════════
+function descargarPDF(id){
+  if(!id){showToast('⚠ No se encontró el registro a exportar.');return;}
+  const db=getDB(); const r=db.find(x=>x.id===id); if(!r){showToast('⚠ Registro no encontrado.');return;}
+  const et=r.etapas||{};
+  const bc=r.resultado==='APTO'?'#2e7d32':r.resultado==='NO APTO'?'#c62828':r.resultado==='CONDICIONADO'?'#ef6c00':'#1565c0';
+
+  const GH_N=['Condiciones personales y disponibilidad','Perfil personal y formación','Experiencia laboral','Motivación e interés por el cargo','Manejo de situaciones y ajuste cultural'];
+  const JI_N=['Feeling y afinidad con el equipo','Validación de conocimientos técnicos','Actitud, motivación y forma de trabajar','Resolución de problemas y ajuste al líder'];
+  const VIS_N=['Condiciones de vivienda y entorno familiar','Hábitos, estilo de vida y soporte','Coherencia de la información y presentación','Estabilidad económica y percepción general'];
+
+  function block(titulo, data, nombres, max, minPts){
+    if(!data) return '';
+    const total=data.total!=null?data.total:(data.avg!=null?data.avg:null);
+    const pasa=total!=null?(data.avg!=null?total>=65:total>=minPts):null;
+    const col=pasa===null?'#888':pasa?'#2e7d32':'#c62828';
+    let b=`<div class="pdf-block" style="border:1px solid #ddd;border-radius:6px;overflow:hidden;margin-bottom:8px">
+      <div style="background:#f0f0f0;padding:6px 10px;display:flex;justify-content:space-between;font-size:11px">
+        <strong>${titulo}</strong>
+        ${total!=null?`<strong style="color:${col}">${total}${data.avg!=null?'%':'/100'} ${pasa?'✓ PASA':'✗ NO PASA'}</strong>`:''}
+      </div>`;
+    if(data.dec||data.jefe||data.firma||data.modal){
+      b+='<div style="padding:5px 10px;font-size:10px;color:#555;border-bottom:1px solid #eee">';
+      if(data.modal)b+=`Modalidad: <strong>${data.modal}</strong> &nbsp; `;
+      if(data.dec)b+=`Decisión: <strong>${data.dec}</strong> &nbsp; `;
+      if(data.jefe)b+=`Jefe: <strong>${data.jefe}</strong> &nbsp; `;
+      if(data.firma)b+=`Firma: <strong>${data.firma}</strong>`;
+      b+='</div>';
+    }
+    if(nombres&&data.scores){
+      nombres.forEach((n,i)=>{
+        const sc=data.scores[i]||0; const ob=(data.obs||[])[i]||'';
+        b+=`<div style="padding:4px 10px;border-bottom:1px solid #f5f5f5;font-size:10px">
+          <div style="display:flex;justify-content:space-between"><span>${n}</span><strong>${sc}/${max} pts</strong></div>
+          ${ob?`<div style="color:#777;font-size:9px;margin-top:2px">${ob}</div>`:''}
+        </div>`;
+      });
+    }
+    if(data.res)b+=`<div style="padding:5px 10px;font-size:10px">Resultado: <strong>${data.res}</strong></div>`;
+    if(data.obsGen)b+=`<div style="padding:5px 10px;font-size:9px;color:#666;background:#fafafa">${data.obsGen}</div>`;
+    b+='</div>';
+    return b;
+  }
+
+  let h = `<div class="pdf-page" style="font-family:'Segoe UI',sans-serif;color:#1a1a1a;max-width:800px;margin:0 auto">
+    <div style="display:flex;align-items:center;gap:14px;border-bottom:3px solid #B11E29;padding-bottom:12px;margin-bottom:16px">
+      <div style="width:46px;height:46px;border-radius:50%;background:#f0f0f0;flex-shrink:0"></div>
+      <div>
+        <div style="font-size:18px;font-weight:800;color:#B11E29">ABAD LABORATORIO</div>
+        <div style="font-size:11px;color:#666">Sistema de Selección de Personal · SGC-GH-SEL-001 V.10</div>
+      </div>
+      <div style="margin-left:auto;text-align:right;font-size:10px;color:#888">Generado: ${new Date().toLocaleDateString('es-CO')} ${new Date().toLocaleTimeString('es-CO')}</div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <span style="background:${bc};color:#fff;padding:5px 14px;border-radius:20px;font-size:12px;font-weight:700">${r.resultado||'EN PROCESO'}</span>
+      ${r.ponderado!=null?`<span style="font-size:20px;font-weight:800;color:#B11E29">${r.ponderado}%</span><span style="font-size:10px;color:#888">puntaje ponderado</span>`:''}
+    </div>
+
+    <div style="background:#f8f8f8;border-radius:6px;padding:10px 14px;margin-bottom:14px">
+      <div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#B11E29;margin-bottom:6px">Datos del candidato</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:11px">
+        <div>Nombre: <strong>${r.nombre||'—'}</strong></div>
+        <div>Cédula: <strong>${r.cedula||'—'}</strong></div>
+        <div>Cargo: <strong>${r.cargo||'—'}</strong></div>
+        <div>Sede: <strong>${r.sede||'—'}</strong></div>
+        <div>Evaluador GH: <strong>${r.evaluador||'—'}</strong></div>
+        <div>Fecha inicio: <strong>${r.fechaInicio||'—'}</strong></div>
+        <div>Fecha fin: <strong>${r.fechaFin||'—'}</strong></div>
+        <div>Jefe inmediato: <strong>${r.jefeNombre||'—'}</strong></div>
+      </div>
+    </div>
+
+    <div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#B11E29;margin-bottom:6px">Detalle por etapa</div>
+    ${block('2. Entrevista GH', et.gh, GH_N, 20, 60)}
+    ${block('3. Entrevista jefe inmediato', et.ji, JI_N, 25, 60)}
+    ${et.beh?block('4. Evaluación técnica', {total:et.tec?.total,scores:et.tec?.scores,obsGen:et.tec?.obsGen}, et.tec?.names, 25, 65):''}
+    ${et.beh?block('5. Competencias comportamentales', et.beh, et.beh.names, null, 65):''}
+    ${et.pol?block('6. Polígrafo / VSA', {res:et.pol.res, obsGen:et.pol.obs}, null, null, null):''}
+    ${et.vis?block('7. Visita domiciliaria', et.vis, VIS_N, 25, 60):''}
+    ${et.med?block('8. Examen médico', {res:et.med.res, obsGen:et.med.obs, firma:et.med.ips}, null, null, null):''}
+
+    ${r.etapaDetenida?`<div class="pdf-block" style="background:#ffebee;border:1px solid #ffcdd2;border-radius:6px;padding:8px 12px;margin-bottom:10px;font-size:10px;color:#c62828"><strong>Motivo NO APTO:</strong> ${r.etapaDetenida}</div>`:''}
+    ${r.decision?`<div class="pdf-block" style="background:#f8f8f8;border-radius:6px;padding:8px 12px;margin-bottom:10px;font-size:10px"><strong style="color:#B11E29">Decisión final:</strong> ${r.decision}</div>`:''}
+
+    <div style="margin-top:20px;padding-top:12px;border-top:1px solid #ddd;display:flex;justify-content:space-between;font-size:9px;color:#888">
+      <span>Firma Coordinadora GH: ${r.firmas?.gh||'_______________________'}</span>
+      <span>Firma Dir. Administrativa: ${r.firmas?.da||'_______________________'}</span>
+    </div>
+    <div style="text-align:center;font-size:8px;color:#aaa;margin-top:16px">Documento generado automáticamente por el Sistema de Selección de Personal de Abad Laboratorio — SGC-GH-SEL-001</div>
+  </div>`;
+
+  const area=document.getElementById('print-area');
+  area.innerHTML=h;
+  document.body.classList.add('printing');
+  document.title = 'Abad_'+(r.nombre||'Candidato').replace(/\s+/g,'_')+'_'+(r.resultado||'proceso');
+
+  setTimeout(()=>{
+    window.print();
+  }, 150);
+}
+
+window.addEventListener('afterprint', function(){
+  document.body.classList.remove('printing');
+  document.getElementById('print-area').innerHTML='';
+  document.title = 'Abad Laboratorio — Sistema de Selección SGC-GH-SEL-001 V.10';
+});
+
+async function eliminar(id){
   if(!confirm('¿Eliminar este proceso? Esta acción no se puede deshacer.'))return;
-  saveDB(getDB().filter(r=>r.id!==id));renderPanel();
+  const filtered = getDB().filter(r=>r.id!==id);
+  localStorage.setItem(DB_KEY, JSON.stringify(filtered));
+  renderPanel();
+  await spDeleteItem('seleccion', id);
+  showToast('✓ Proceso eliminado');
 }
 
 // ══════════════════════════ INIT ══════════
-document.addEventListener('DOMContentLoaded', function(){
+document.addEventListener('DOMContentLoaded', async function(){
+  // Show loading immediately
+  showLoading('Iniciando sistema...', 'Abad Laboratorio · Sistema de Selección SGC-GH-SEL-001');
+
+  // Init form components (doesn't need SP data)
   document.getElementById('fecha-inicio').valueAsDate=new Date();
   renderGHItems();
   renderJIItems();
@@ -2339,9 +3019,26 @@ document.addEventListener('DOMContentLoaded', function(){
   renderBEHGrid('');
   renderTECGrid('');
   renderExamList('');
+
+  // Try to connect to SharePoint and load data
+  // initSharePoint handles hideLoading() when done
+  try {
+    await initSharePoint();
+  } catch(e) {
+    console.warn('SP init failed:', e);
+    hideLoading();
+  }
+
+  // Render all views (uses SP data if loaded, local data as fallback)
   applyCatalogToForms();
   renderDash();
   renderPanel();
+
+  // If SP connected, show sync button
+  if(spReady) {
+    const syncBtn = document.getElementById('sp-sync-btn');
+    if(syncBtn) syncBtn.style.display = 'block';
+  }
 });
 
 // ══════════════════════════════════════════════════════════════
@@ -2423,7 +3120,11 @@ function getCat(){
   try{const d=JSON.parse(localStorage.getItem(CAT_KEY));return d||JSON.parse(JSON.stringify(CAT_DEFAULTS));}
   catch(e){return JSON.parse(JSON.stringify(CAT_DEFAULTS));}
 }
-function saveCat(d){localStorage.setItem(CAT_KEY,JSON.stringify(d));showSaveToast();}
+function saveCat(d){
+  localStorage.setItem(CAT_KEY,JSON.stringify(d));
+  showSaveToast();
+  if(spReady) spSaveCatalogos(d).catch(e=>console.warn('SP cat sync:',e));
+}
 function resetCat(){if(confirm('¿Restaurar todos los catálogos a los valores originales? Esta acción no se puede deshacer.')){localStorage.removeItem(CAT_KEY);renderCatalogos();showSaveToast('Catálogos restaurados');}}
 
 function showSaveToast(msg){
@@ -3039,7 +3740,13 @@ const PERFIL_CARGO = {
 };
 
 function getReqDB(){try{return JSON.parse(localStorage.getItem(REQ_KEY)||'[]')}catch(e){return[]}}
-function saveReqDB(d){localStorage.setItem(REQ_KEY,JSON.stringify(d))}
+function saveReqDB(d){
+  localStorage.setItem(REQ_KEY,JSON.stringify(d));
+  if(spReady && d.length > 0) {
+    const last = d[d.length-1];
+    spSaveRequisicion(last).catch(e=>console.warn('SP req sync:',e));
+  }
+}
 function getReqConsecutivo(){
   const db=getReqDB();
   const n=db.length+1;
